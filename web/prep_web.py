@@ -1,67 +1,130 @@
-"""Prepara i dati di tutti i plessi e genera index.html (la pagina interattiva) a partire da template.html."""
-import json, re, collections as C
+"""Genera index.html, la pagina interattiva, a partire da web/template.html e dai dati MIM.
+
+La pagina contiene tutti i plessi statali di primaria e secondaria di primo grado, in un
+JSON compatto incorporato nel modello al posto del segnaposto __DATA__.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
 from pathlib import Path
-WEB = Path(__file__).parent
-src = (WEB.parent / "build.py").read_text()
-exec(src[:src.index("non_match = []")].replace("Path(__file__).parent", "WEB.parent"))  # riusa mappature regioni/province/comuni e letture CSV
 
-MINUSCOLE = {"di", "del", "della", "delle", "dello", "dei", "degli", "da", "dal", "dalla", "e", "ed", "in", "a", "al",
-             "alla", "alle", "ai", "agli", "con", "per", "su", "sul", "sulla", "tra", "fra", "lo", "la", "le", "il", "gli"}
-ROMANI = re.compile(r"^(?=[IVXLC]+$)M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$")
+WEB_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(WEB_DIR.parent))
 
-def bello(s):
-    out = []
-    for i, w in enumerate(s.split()):
-        core = w.strip('"().,-')
-        if ROMANI.match(core.upper()) and core.upper() == core and len(core) > 0 and core not in ("C", "L", "D", "V"):
-            out.append(w); continue
-        if re.fullmatch(r"([A-Z]\.){2,}[A-Z]?\.?", w):  # sigle tipo I.C. / S.M.S.
-            out.append(w); continue
-        t = w.lower()
-        if i > 0 and t in MINUSCOLE:
-            out.append(t); continue
-        t = re.sub(r"(^|[\"'(\-./])([a-zàèéìòù])", lambda m: m.group(1) + m.group(2).upper(), t)
-        out.append(t)
-    return " ".join(out)
+from common import BASE_DIR, SOGLIA_PERCENTUALE, Plesso, carica_plessi  # noqa: E402
 
-reg_l, prov_l, com_l = [], [], []
-reg_i, prov_i, com_i = {}, {}, {}
-per_scuola = C.OrderedDict()
-for r in righe:
-    k = (r["CODICESCUOLA"], ORDINI[r["ORDINESCUOLA"]])
-    d = per_scuola.setdefault(k, {})
-    d[int(r["ANNOCORSO"])] = [int(r["ALUNNI"]), int(r["ALUNNICITTADINANZANONITALIANAPAESIUE"]),
-                              int(r["ALUNNICITTADINANZANONITALIANAPAESINONUE"])]
+TEMPLATE = WEB_DIR / "template.html"
+OUTPUT = BASE_DIR / "index.html"
+PROVINCIA_INIZIALE = "Prato"  # la provincia con la quota più alta: la pagina si apre lì
 
-scuole = []
-for (cod, ordine), anni in per_scuola.items():
-    an = ana[cod]
-    reg = REG[REG_ALIAS.get(norm(an["REGIONE"]), norm(an["REGIONE"]))][0]
-    pv = PROV[norm(an["PROVINCIA"])]
-    com = comune(an["DESCRIZIONECOMUNE"], pv[1])[0]
-    if reg not in reg_i: reg_i[reg] = len(reg_l); reg_l.append(reg)
-    pk = (reg, pv[0])
-    if pk not in prov_i: prov_i[pk] = len(prov_l); prov_l.append([pv[0], reg_i[reg]])
-    ck = (pk, com)
-    if ck not in com_i: com_i[ck] = len(com_l); com_l.append([com, prov_i[pk]])
-    n = 5 if ordine == "Primaria" else 3
-    scuole.append([com_i[ck], bello(an["DENOMINAZIONESCUOLA"]), 0 if ordine == "Primaria" else 1,
-                   bello(an["INDIRIZZOSCUOLA"]), cod, [anni.get(y, [0, 0, 0]) for y in range(1, n + 1)]])
+# Il modello contiene solo il corpo della pagina; per GitHub Pages serve l'intestazione completa.
+INTESTAZIONE_HTML = (
+    '<!doctype html>\n<html lang="it">\n<head>\n<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+)
 
-for s in scuole:
-    s[1] = s[1].replace("F.Lli", "F.lli"); s[3] = s[3].replace("F.Lli", "F.lli")
-data = {"r": reg_l, "p": prov_l, "c": com_l, "s": scuole}
+PAROLE_MINUSCOLE = {
+    "di", "del", "della", "delle", "dello", "dei", "degli", "da", "dal", "dalla", "e", "ed", "in",
+    "a", "al", "alla", "alle", "ai", "agli", "con", "per", "su", "sul", "sulla", "tra", "fra",
+    "lo", "la", "le", "il", "gli",
+}
+NUMERO_ROMANO = re.compile(r"^(?=[IVXLC]+$)M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$")
+SIGLA = re.compile(r"([A-Z]\.){2,}[A-Z]?\.?")
+INIZIO_PAROLA = re.compile(r"(^|[\"'(\-./])([a-zàèéìòù])")
 
-# scuola mostrata all'apertura: primaria di Prato (provincia con la quota più alta) con più anni oltre soglia
-prato = next(i for i, p in enumerate(prov_l) if p[0] == "Prato")
-def chiave(s):
-    a = sum(y[0] for y in s[5]); st = sum(y[1] + y[2] for y in s[5])
-    return (sum(1 for y in s[5] if y[0] and (y[1] + y[2]) / y[0] > .3), -abs(st / a - .5), a)
-start = max((s for s in scuole if com_l[s[0]][1] == prato and s[2] == 0), key=chiave)[4]
 
-html = (WEB / "template.html").read_text()
-html = html.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":"))).replace("__START__", start)
-# intestazione HTML completa per GitHub Pages (il modello contiene solo il corpo della pagina)
-testa = '<!doctype html>\n<html lang="it">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-(WEB.parent / "index.html").write_text(testa + html)
-print(f"index.html: {len(scuole)} plessi, {len(com_l)} comuni, scuola iniziale {start}")
+def maiuscole_minuscole(testo: str) -> str:
+    """Converte un nome dal tutto maiuscolo MIM a maiuscole e minuscole all'italiana.
+
+    Lascia invariati numeri romani (XXIII) e sigle puntate (I.C.), mette in minuscolo
+    articoli e preposizioni non iniziali.
+    """
+    parole = []
+    for posizione, parola in enumerate(testo.split()):
+        nucleo = parola.strip('"().,-')
+        if nucleo not in {"C", "L", "D", "V"} and NUMERO_ROMANO.match(nucleo) and nucleo.isupper():
+            parole.append(parola)
+        elif SIGLA.fullmatch(parola):
+            parole.append(parola)
+        elif posizione > 0 and parola.lower() in PAROLE_MINUSCOLE:
+            parole.append(parola.lower())
+        else:
+            parole.append(INIZIO_PAROLA.sub(lambda m: m.group(1) + m.group(2).upper(), parola.lower()))
+    return " ".join(parole).replace("F.Lli", "F.lli")
+
+
+def dati_compatti(plessi: list[Plesso]) -> dict:
+    """Regioni, province, comuni e plessi come liste indicizzate, per contenere il peso della pagina.
+
+    Ogni plesso è [indice comune, nome, ordine (0 primaria, 1 secondaria), indirizzo, codice,
+    [[alunni, stranieri UE, stranieri extra-UE] per ogni anno di corso]].
+    """
+    regioni: list[str] = []
+    province: list[list] = []
+    comuni: list[list] = []
+    indice_regione: dict[str, int] = {}
+    indice_provincia: dict[tuple, int] = {}
+    indice_comune: dict[tuple, int] = {}
+    scuole = []
+
+    for plesso in plessi:
+        if plesso.regione not in indice_regione:
+            indice_regione[plesso.regione] = len(regioni)
+            regioni.append(plesso.regione)
+        chiave_provincia = (plesso.regione, plesso.provincia)
+        if chiave_provincia not in indice_provincia:
+            indice_provincia[chiave_provincia] = len(province)
+            province.append([plesso.provincia, indice_regione[plesso.regione]])
+        chiave_comune = (chiave_provincia, plesso.comune)
+        if chiave_comune not in indice_comune:
+            indice_comune[chiave_comune] = len(comuni)
+            comuni.append([plesso.comune, indice_provincia[chiave_provincia]])
+
+        numero_anni = 5 if plesso.ordine == "Primaria" else 3
+        anni = []
+        for anno in range(1, numero_anni + 1):
+            dati = plesso.anni.get(anno)
+            anni.append([dati.alunni, dati.stranieri_ue, dati.stranieri_non_ue] if dati else [0, 0, 0])
+        scuole.append([
+            indice_comune[chiave_comune],
+            maiuscole_minuscole(plesso.denominazione),
+            0 if plesso.ordine == "Primaria" else 1,
+            maiuscole_minuscole(plesso.indirizzo),
+            plesso.codice,
+            anni,
+        ])
+    return {"r": regioni, "p": province, "c": comuni, "s": scuole}
+
+
+def plesso_iniziale(plessi: list[Plesso]) -> str:
+    """Primaria della provincia iniziale con più anni oltre soglia (a parità: quota vicina al 50%)."""
+    def punteggio(plesso: Plesso) -> tuple:
+        quota = plesso.percentuale_stranieri(includi_ue=True) or 0
+        return (len(plesso.anni_oltre_soglia(includi_ue=True)), -abs(quota - 50), plesso.alunni())
+
+    candidati = [p for p in plessi if p.provincia == PROVINCIA_INIZIALE and p.ordine == "Primaria"]
+    return max(candidati, key=punteggio).codice
+
+
+def main() -> None:
+    plessi = carica_plessi()
+    dati = dati_compatti(plessi)
+    iniziale = plesso_iniziale(plessi)
+    modello = TEMPLATE.read_text(encoding="utf-8")
+    for segnaposto in ("__DATA__", "__START__", "__SOGLIA__"):
+        if segnaposto not in modello:
+            raise ValueError(f"Segnaposto {segnaposto} mancante in {TEMPLATE.name}")
+    pagina = (
+        modello.replace("__DATA__", json.dumps(dati, ensure_ascii=False, separators=(",", ":")))
+        .replace("__START__", iniziale)
+        .replace("__SOGLIA__", f"{SOGLIA_PERCENTUALE:g}")
+    )
+    OUTPUT.write_text(INTESTAZIONE_HTML + pagina, encoding="utf-8")
+    print(f"{OUTPUT.name}: {len(dati['s'])} plessi, {len(dati['c'])} comuni, pagina iniziale {iniziale}")
+
+
+if __name__ == "__main__":
+    main()

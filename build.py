@@ -1,163 +1,278 @@
-import csv, unicodedata, re, collections as C
-from pathlib import Path
+"""Genera i due file Excel sulle scuole con classi oltre il 30% di alunni stranieri (a.s. 2024/25).
+
+- Scuole_stranieri_oltre30_nonUE_2024-25.xlsx: stranieri = solo cittadini extra-UE
+- Scuole_stranieri_oltre30_UE_e_nonUE_2024-25.xlsx: stranieri = tutti i cittadini non italiani
+
+Ogni file ha tre fogli: Province (quote per provincia, con la riga Italia in fondo),
+Scuole (elenco dei plessi oltre soglia) e Note (definizioni, fonti e limiti dei dati).
+"""
+
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from typing import Any
+
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Alignment, Font
+from openpyxl.worksheet.worksheet import Worksheet
 
-BASE = Path(__file__).parent
-REF = BASE / "istat"  # elenchi Istat di regioni, province e comuni
-SOGLIA = 30.0
+from common import ANNI_PER_ORDINE, BASE_DIR, SOGLIA_PERCENTUALE, Plesso, carica_plessi
 
-def norm(s):
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
-    s = s.replace("'", " ").replace("-", " ").replace("’", " ")
-    return re.sub(r"\s+", " ", s).strip()
+FONT_INTESTAZIONE = Font(name="Arial", size=10, bold=True)
+FONT_DATI = Font(name="Arial", size=10)
+ALLINEA_SINISTRA = Alignment(horizontal="left")
+ALLINEA_DESTRA = Alignment(horizontal="right")
+ALLINEA_TESTO_LUNGO = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
-def load_ref(fn):
-    return [tuple(r.values()) for r in csv.DictReader(open(REF / fn, encoding="utf-8"))]
+ORDINI = [("Primaria", "Primarie"), ("Secondaria di primo grado", "Secondarie I grado")]
 
-# --- Regioni
-REG = {norm(n): (n, c) for n, c in load_ref("regioni_istat.csv")}
-REG_ALIAS = {"friuli venezia g.": "friuli venezia giulia"}
 
-# --- Province: MIM usa ancora l'assetto sardo pre-2025 → codici Istat in vigore fino al 2025
-PROV = {norm(n): (n, c) for n, c in load_ref("province_istat.csv")}
-PROV.update({
-    "sassari": ("Sassari", "090"), "nuoro": ("Nuoro", "091"), "cagliari": ("Cagliari", "292"),
-    "oristano": ("Oristano", "095"), "sud sardegna": ("Sud Sardegna", "111"),
-    "reggio emilia": ("Reggio nell'Emilia", "035"), "forli cesena": ("Forlì-Cesena", "040"),
-})
+@dataclass(frozen=True)
+class Variante:
+    """Una delle due definizioni di "straniero" usate per produrre i file."""
 
-# --- Comuni (con omonimi)
-COM = C.defaultdict(list)
-for n, c in load_ref("comuni_istat.csv"):
-    COM[norm(n)].append((n, c))
+    includi_ue: bool
+    etichetta: str
+    nome_file: str
 
-SARDEGNA = {"090": {"112", "113"}, "091": {"114", "116"}, "292": {"118"}, "095": {"115"}, "111": {"114", "116", "117", "118", "119"}}
-COM_ALIAS = {"castegnero": "castegnero nanto", "nanto": "castegnero nanto", "montemagno": "montemagno monferrato",
-             "murisengo": "murisengo monferrato", "popoli": "popoli terme", "puegnago sul garda": "puegnago del garda",
-             "san dorligo della valle dolina": "san dorligo della valle"}
 
-def prefissi(cod_prov):
-    if cod_prov in SARDEGNA: return SARDEGNA[cod_prov]
-    return {"0" + cod_prov[1:]} if cod_prov[0] == "2" else {cod_prov}
+VARIANTI = [
+    Variante(False, "non UE", "Scuole_stranieri_oltre30_nonUE_2024-25.xlsx"),
+    Variante(True, "UE e non UE", "Scuole_stranieri_oltre30_UE_e_nonUE_2024-25.xlsx"),
+]
 
-def comune(nome, cod_prov):
-    k = COM_ALIAS.get(norm(nome), norm(nome))
-    pre = prefissi(cod_prov)
-    cands = [x for x in COM.get(k, []) if x[1][:3] in pre]
-    if not cands:  # nomi troncati a 30 caratteri nell'anagrafica MIM
-        cands = [x for kk, v in COM.items() if len(k) >= 25 and kk.startswith(k) for x in v if x[1][:3] in pre]
-    return cands[0] if len(cands) == 1 else (nome.title(), "")
 
-# --- Anagrafica
-ana = {r["CODICESCUOLA"]: r for r in csv.DictReader(open(BASE / "SCUANAGRAFESTAT20242520250831.csv", encoding="utf-8-sig"))}
+def percentuale(parte: int, totale: int) -> float | None:
+    return round(parte / totale * 100, 1) if totale else None
 
-ORDINI = {"SCUOLA PRIMARIA": "Primaria", "SCUOLA SECONDARIA I GRADO": "Secondaria di primo grado"}
-righe = [r for r in csv.DictReader(open(BASE / "ALUITASTRACITSTA20242520250831.csv", encoding="utf-8-sig"))
-         if r["ORDINESCUOLA"] in ORDINI]
 
-non_match = []
+# ---------------------------------------------------------------- foglio Province
 
-def build(campo_str, etichetta, out_name):
-    scuole = C.OrderedDict()
-    for r in righe:
-        k = (r["CODICESCUOLA"], ORDINI[r["ORDINESCUOLA"]])
-        d = scuole.setdefault(k, {"anni": {}, "tot": 0, "str": 0})
-        a, s = int(r["ALUNNI"]), int(r[campo_str])
-        d["anni"][int(r["ANNOCORSO"])] = (a, s)
-        d["tot"] += a; d["str"] += s
+def righe_province(plessi: list[Plesso], includi_ue: bool) -> tuple[list[str], list[list], list]:
+    """Intestazione, righe per provincia e riga di sintesi nazionale."""
+    conteggi: dict[tuple, Counter] = defaultdict(Counter)
+    for plesso in plessi:
+        chiave = (plesso.codice_regione, plesso.provincia, plesso.regione, plesso.codice_provincia)
+        conteggio = conteggi[chiave]
+        conteggio[plesso.ordine, "plessi"] += 1
+        conteggio[plesso.ordine, "anno"] += bool(plesso.anni_oltre_soglia(includi_ue))
+        conteggio[plesso.ordine, "totale"] += plesso.totale_oltre_soglia(includi_ue)
 
-    prov = C.defaultdict(lambda: C.Counter())
-    elenco = []
-    for (cod, ordine), d in scuole.items():
-        an = ana[cod]
-        reg = REG[REG_ALIAS.get(norm(an["REGIONE"]), norm(an["REGIONE"]))]
-        pv = PROV[norm(an["PROVINCIA"])]
-        com = comune(an["DESCRIZIONECOMUNE"], pv[1])
-        if not com[1]:
-            non_match.append(an["DESCRIZIONECOMUNE"])
-        pct_anni = {y: round(s / a * 100, 1) if a else None for y, (a, s) in d["anni"].items()}
-        anni_over = sorted(y for y, (a, s) in d["anni"].items() if a and s / a * 100 > SOGLIA)
-        pct_tot = d["str"] / d["tot"] * 100 if d["tot"] else None
-        tot_over = pct_tot is not None and pct_tot > SOGLIA
-        key = (reg, pv)
-        c = prov[key]
-        c[ordine + "|n"] += 1
-        c[ordine + "|anno"] += bool(anni_over)
-        c[ordine + "|tot"] += tot_over
-        if anni_over or tot_over:
-            elenco.append([
-                cod, an["DENOMINAZIONESCUOLA"], ordine, an["CODICEISTITUTORIFERIMENTO"], an["DENOMINAZIONEISTITUTORIFERIMENTO"],
-                an["INDIRIZZOSCUOLA"], an["CAPSCUOLA"], com[0], com[1], pv[0], pv[1], reg[0], reg[1],
-                d["tot"], d["str"], round(pct_tot, 1),
-                "sì" if anni_over else "no", "sì" if tot_over else "no",
-                len(anni_over), ", ".join(map(str, anni_over)),
-                *[pct_anni.get(y) for y in range(1, 6)],
-            ])
+    intestazione = ["Regione", "Codice Istat regione", "Provincia", "Codice Istat provincia"]
+    for _, etichetta in ORDINI:
+        intestazione += [
+            f"{etichetta} (n)",
+            f"{etichetta} con almeno un anno >30% (n)",
+            f"{etichetta} con almeno un anno >30% (%)",
+            f"{etichetta} con totale >30% (n)",
+            f"{etichetta} con totale >30% (%)",
+        ]
 
-    # ---- foglio province
-    hp = ["Regione", "Codice Istat regione", "Provincia", "Codice Istat provincia"]
-    for o, lab in [("Primaria", "Primarie"), ("Secondaria di primo grado", "Secondarie I grado")]:
-        hp += [f"{lab} (n)", f"{lab} con almeno un anno >30% (n)", f"{lab} con almeno un anno >30% (%)",
-               f"{lab} con totale >30% (n)", f"{lab} con totale >30% (%)"]
-    rows_p = []
-    for (reg, pv), c in sorted(prov.items(), key=lambda x: (x[0][0][1], x[0][1][0])):
-        row = [reg[0], reg[1], pv[0], pv[1]]
-        for o in ["Primaria", "Secondaria di primo grado"]:
-            n = c[o + "|n"]
-            row += [n, c[o + "|anno"], round(c[o + "|anno"] / n * 100, 1) if n else None,
-                    c[o + "|tot"], round(c[o + "|tot"] / n * 100, 1) if n else None]
-        rows_p.append(row)
+    def valori(conteggio: Counter) -> list:
+        riga = []
+        for ordine, _ in ORDINI:
+            totale = conteggio[ordine, "plessi"]
+            riga += [
+                totale,
+                conteggio[ordine, "anno"],
+                percentuale(conteggio[ordine, "anno"], totale),
+                conteggio[ordine, "totale"],
+                percentuale(conteggio[ordine, "totale"], totale),
+            ]
+        return riga
 
-    he = ["Codice scuola", "Denominazione scuola", "Ordine di scuola", "Codice istituto di riferimento",
-          "Denominazione istituto di riferimento", "Indirizzo", "CAP", "Comune", "Codice Istat comune",
-          "Provincia", "Codice Istat provincia", "Regione", "Codice Istat regione",
-          "Alunni (n)", f"Alunni stranieri {etichetta} (n)", f"Alunni stranieri {etichetta} (%)",
-          "Almeno un anno di corso >30%", "Totale scuola >30%", "Anni di corso >30% (n)", "Anni di corso >30%",
-          "Stranieri 1° anno (%)", "Stranieri 2° anno (%)", "Stranieri 3° anno (%)", "Stranieri 4° anno (%)", "Stranieri 5° anno (%)"]
-    elenco.sort(key=lambda r: (r[12], r[9], r[7], r[2], r[1]))
+    righe = []
+    for (codice_regione, provincia, regione, codice_provincia), conteggio in sorted(conteggi.items()):
+        righe.append([regione, codice_regione, provincia, codice_provincia, *valori(conteggio)])
 
-    text_cols_e = {"Codice scuola", "CAP", "Codice Istat comune", "Codice Istat provincia", "Codice Istat regione", "Anni di corso >30%"}
-    wb = Workbook()
-    write(wb.active, "Province", hp, rows_p, {"Codice Istat regione", "Codice Istat provincia"})
-    write(wb.create_sheet(), "Scuole", he, elenco, text_cols_e)
-    wb.save(BASE / out_name)
+    nazionale = Counter()
+    for conteggio in conteggi.values():
+        nazionale.update(conteggio)
+    riga_italia = ["Italia", "", "", "", *valori(nazionale)]
+    return intestazione, righe, riga_italia
 
-    # riepilogo nazionale
-    tot = C.Counter()
-    for c in prov.values(): tot.update(c)
-    print(out_name, "| scuole in elenco:", len(elenco))
-    for o in ["Primaria", "Secondaria di primo grado"]:
-        print(f"  {o}: {tot[o+'|n']} plessi, anno>30%: {tot[o+'|anno']} ({tot[o+'|anno']/tot[o+'|n']*100:.1f}%), totale>30%: {tot[o+'|tot']} ({tot[o+'|tot']/tot[o+'|n']*100:.1f}%)")
-    top = sorted(rows_p, key=lambda r: -r[6])[:5]
-    print("  top primarie (anno):", [(r[2], r[6]) for r in top])
-    top = sorted(rows_p, key=lambda r: -r[11])[:5]
-    print("  top secondarie (anno):", [(r[2], r[11]) for r in top])
 
-def fmt_for(vals):
-    v = [x for x in vals if isinstance(x, (int, float))]
-    if all(float(x).is_integer() for x in v): return "0"
-    if all(round(x, 1) == x for x in v): return "0.0"
+# ---------------------------------------------------------------- foglio Scuole
+
+def righe_scuole(plessi: list[Plesso], variante: Variante) -> tuple[list[str], list[list]]:
+    """Intestazione e righe dei plessi con almeno un anno di corso o il totale oltre soglia."""
+    intestazione = [
+        "Codice scuola", "Denominazione scuola", "Ordine di scuola",
+        "Codice istituto di riferimento", "Denominazione istituto di riferimento",
+        "Indirizzo", "CAP", "Comune", "Codice Istat comune", "Provincia", "Codice Istat provincia",
+        "Regione", "Codice Istat regione", "Alunni (n)",
+        f"Alunni stranieri {variante.etichetta} (n)", f"Alunni stranieri {variante.etichetta} (%)",
+        "Almeno un anno di corso >30%", "Totale scuola >30%",
+        "Anni di corso >30% (n)", "Anni di corso >30%",
+        *[f"Stranieri {anno}° anno (%)" for anno in range(1, 6)],
+    ]
+    righe = []
+    for plesso in plessi:
+        anni_oltre = plesso.anni_oltre_soglia(variante.includi_ue)
+        totale_oltre = plesso.totale_oltre_soglia(variante.includi_ue)
+        if not (anni_oltre or totale_oltre):
+            continue
+        percentuali_anni = []
+        for anno in range(1, 6):
+            dati = plesso.anni.get(anno)
+            valore = dati.percentuale_stranieri(variante.includi_ue) if dati else None
+            percentuali_anni.append(round(valore, 1) if valore is not None else None)
+        righe.append([
+            plesso.codice, plesso.denominazione, plesso.ordine,
+            plesso.codice_istituto, plesso.denominazione_istituto,
+            plesso.indirizzo, plesso.cap, plesso.comune, plesso.codice_comune,
+            plesso.provincia, plesso.codice_provincia, plesso.regione, plesso.codice_regione,
+            plesso.alunni(), plesso.stranieri(variante.includi_ue),
+            round(plesso.percentuale_stranieri(variante.includi_ue), 1),
+            "sì" if anni_oltre else "no", "sì" if totale_oltre else "no",
+            len(anni_oltre), ", ".join(map(str, anni_oltre)),
+            *percentuali_anni,
+        ])
+    # Ordine: codice regione, provincia, comune, ordine di scuola, denominazione.
+    righe.sort(key=lambda r: (r[12], r[9], r[7], r[2], r[1]))
+    return intestazione, righe
+
+
+# ---------------------------------------------------------------- foglio Note
+
+NOTE_COMUNI = [
+    ("Classi e anni di corso",
+     "Il Ministero non pubblica i dati per singola sezione (1ª A, 1ª B…) ma per anno di corso: "
+     "tutti gli alunni delle prime, delle seconde e così via di uno stesso plesso. Nel file "
+     "\"classe\" va quindi letto come \"anno di corso\". È un'approssimazione: una singola "
+     "sezione può superare il 30% anche se la media dell'anno di corso è sotto soglia, e viceversa."),
+    ("Almeno un anno >30%",
+     "Il plesso ha almeno un anno di corso in cui gli stranieri sono più del 30% degli iscritti."),
+    ("Totale >30%",
+     "Gli stranieri sono più del 30% del totale degli iscritti del plesso. Un plesso con il totale "
+     "oltre soglia ha sempre almeno un anno di corso oltre soglia."),
+    ("Soglia",
+     f"Più del {SOGLIA_PERCENTUALE:.0f}% (strettamente maggiore), come indicato dalla circolare "
+     "ministeriale n. 2 dell'8 gennaio 2010."),
+    ("Plessi piccoli",
+     "Non è applicata alcuna soglia minima di alunni: nei plessi molto piccoli bastano pochi "
+     "alunni stranieri per superare il 30%. La colonna Alunni (n) permette di filtrarli."),
+    ("Unità di conteggio",
+     "Il plesso di un dato ordine (codice scuola). Le percentuali del foglio Province sono "
+     "calcolate sul numero di plessi dello stesso ordine presenti nella provincia. La riga Italia, "
+     "in fondo, è esclusa dal filtro per non finire in mezzo alle province quando si ordina."),
+    ("Copertura",
+     "Solo scuole statali. Valle d'Aosta e province autonome di Trento e Bolzano non sono presenti "
+     "nei dati del Ministero, che non gestisce direttamente le loro scuole."),
+    ("Sardegna",
+     "Il Ministero usa ancora le province sarde precedenti alla riforma del 2025 (compresa Sud "
+     "Sardegna): sono mantenute con i codici Istat allora in vigore. I codici dei comuni sono "
+     "quelli attuali."),
+    ("Percentuali",
+     "Scritte come numeri da 0 a 100 (38.7 = 38,7%), con l'unità indicata nell'intestazione."),
+    ("Fonti",
+     "Ministero dell'Istruzione e del Merito, Portale unico dei dati della scuola: studenti per "
+     "cittadinanza (ALUITASTRACITSTA20242520250831) e anagrafica scuole statali "
+     "(SCUANAGRAFESTAT20242520250831), licenza IODL 2.0. Istat, codici delle unità territoriali."),
+]
+
+
+def righe_note(variante: Variante) -> list[tuple[str, str]]:
+    """Voci del foglio Note: contenuto e definizione della variante, poi le note comuni."""
+    if variante.includi_ue:
+        chi = "tutti gli alunni con cittadinanza non italiana, UE ed extra-UE"
+    else:
+        chi = "i soli cittadini extra-UE"
+    return [
+        ("Contenuto",
+         "Scuole primarie e secondarie di primo grado statali con classi oltre il 30% di alunni "
+         "stranieri, anno scolastico 2024/25."),
+        ("Definizione di straniero",
+         f"In questo file sono considerati stranieri {chi}. Un file gemello usa l'altra definizione."),
+        *NOTE_COMUNI,
+    ]
+
+
+# ---------------------------------------------------------------- scrittura
+
+def formato_numerico(valori: list[Any]) -> str:
+    """0 per colonne di interi, 0.0 se basta un decimale, 0.00 altrimenti."""
+    numeri = [v for v in valori if isinstance(v, (int, float))]
+    if all(float(v).is_integer() for v in numeri):
+        return "0"
+    if all(round(v, 1) == v for v in numeri):
+        return "0.0"
     return "0.00"
 
-def write(ws, title, header, rows, text_cols):
-    ws.title = title
-    hf, df = Font(name="Arial", size=10, bold=True), Font(name="Arial", size=10)
-    L, R = Alignment(horizontal="left"), Alignment(horizontal="right")
-    for j, h in enumerate(header):
-        col = [r[j] for r in rows]
-        numeric = h not in text_cols and any(isinstance(x, (int, float)) for x in col)
-        fmt = fmt_for(col) if numeric else "@"
-        c = ws.cell(row=1, column=j + 1, value=h); c.font = hf; c.alignment = R if numeric else L
-        for i, v in enumerate(col, start=2):
-            if isinstance(v, float) and v.is_integer() and fmt == "0": v = int(v)
-            c = ws.cell(row=i, column=j + 1, value=v)
-            c.font = df; c.alignment = R if numeric else L; c.number_format = fmt
-        width = max([len(str(h))] + [len(str(x)) for x in col[:3000] if x is not None])
-        ws.column_dimensions[c.column_letter].width = min(max(width + 2, 8), 50)
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
 
-build("ALUNNICITTADINANZANONITALIANAPAESINONUE", "non UE", "Scuole_stranieri_oltre30_nonUE_2024-25.xlsx")
-build("ALUNNICITTADINANZANONITALIANA", "UE e non UE", "Scuole_stranieri_oltre30_UE_e_nonUE_2024-25.xlsx")
-print("comuni senza codice:", sorted(set(non_match)))
+def scrivi_tabella(foglio: Worksheet, intestazione: list[str], righe: list[list],
+                   colonne_testo: set[str], riga_finale: list | None = None) -> None:
+    """Scrive una tabella con intestazione bloccata e filtro; la riga finale resta fuori dal filtro."""
+    tutte = righe + ([riga_finale] if riga_finale else [])
+    for indice_colonna, titolo in enumerate(intestazione, start=1):
+        colonna = [riga[indice_colonna - 1] for riga in tutte]
+        numerica = titolo not in colonne_testo and any(isinstance(v, (int, float)) for v in colonna)
+        formato = formato_numerico(colonna) if numerica else "@"
+        allineamento = ALLINEA_DESTRA if numerica else ALLINEA_SINISTRA
+
+        cella = foglio.cell(row=1, column=indice_colonna, value=titolo)
+        cella.font, cella.alignment = FONT_INTESTAZIONE, allineamento
+        for indice_riga, valore in enumerate(colonna, start=2):
+            if isinstance(valore, float) and formato == "0":
+                valore = int(valore)
+            cella = foglio.cell(row=indice_riga, column=indice_colonna, value=valore)
+            cella.alignment, cella.number_format = allineamento, formato
+            cella.font = FONT_INTESTAZIONE if riga_finale and indice_riga == len(tutte) + 1 else FONT_DATI
+
+        larghezza = max([len(titolo)] + [len(str(v)) for v in colonna[:3000] if v is not None])
+        foglio.column_dimensions[cella.column_letter].width = min(max(larghezza + 2, 8), 50)
+
+    foglio.freeze_panes = "A2"
+    ultima_colonna = foglio.cell(row=1, column=len(intestazione)).column_letter
+    foglio.auto_filter.ref = f"A1:{ultima_colonna}{len(righe) + 1}"
+
+
+def scrivi_note(foglio: Worksheet, note: list[tuple[str, str]]) -> None:
+    for colonna, titolo in enumerate(["Voce", "Spiegazione"], start=1):
+        cella = foglio.cell(row=1, column=colonna, value=titolo)
+        cella.font, cella.alignment = FONT_INTESTAZIONE, ALLINEA_SINISTRA
+    for riga, (voce, testo) in enumerate(note, start=2):
+        for colonna, valore in enumerate([voce, testo], start=1):
+            cella = foglio.cell(row=riga, column=colonna, value=valore)
+            cella.font, cella.alignment = FONT_DATI, ALLINEA_TESTO_LUNGO
+    foglio.column_dimensions["A"].width = 26
+    foglio.column_dimensions["B"].width = 100
+    foglio.freeze_panes = "A2"
+
+
+def genera_file(plessi: list[Plesso], variante: Variante) -> None:
+    intestazione_p, righe_p, riga_italia = righe_province(plessi, variante.includi_ue)
+    intestazione_s, righe_s = righe_scuole(plessi, variante)
+
+    cartella = Workbook()
+    foglio_province = cartella.active
+    foglio_province.title = "Province"
+    scrivi_tabella(foglio_province, intestazione_p, righe_p,
+                   {"Codice Istat regione", "Codice Istat provincia"}, riga_finale=riga_italia)
+    scrivi_tabella(cartella.create_sheet("Scuole"), intestazione_s, righe_s,
+                   {"Codice scuola", "CAP", "Codice Istat comune", "Codice Istat provincia",
+                    "Codice Istat regione", "Anni di corso >30%"})
+    scrivi_note(cartella.create_sheet("Note"), righe_note(variante))
+    cartella.save(BASE_DIR / variante.nome_file)
+
+    print(f"{variante.nome_file}: {len(righe_s)} plessi in elenco")
+    for (ordine, _), inizio in zip(ORDINI, (4, 9)):
+        totale, anno, pct_anno, tot_oltre, pct_tot = riga_italia[inizio:inizio + 5]
+        print(f"  {ordine}: {totale} plessi, almeno un anno >30%: {anno} ({pct_anno}%), "
+              f"totale >30%: {tot_oltre} ({pct_tot}%)")
+
+
+def main() -> None:
+    plessi = carica_plessi()
+    senza_codice = sorted({p.comune for p in plessi if not p.codice_comune})
+    if senza_codice:
+        print("Attenzione, comuni senza codice Istat:", senza_codice)
+    for ordine, anni in ANNI_PER_ORDINE.items():
+        assert all(max(p.anni) <= anni for p in plessi if p.ordine == ordine)
+    for variante in VARIANTI:
+        genera_file(plessi, variante)
+
+
+if __name__ == "__main__":
+    main()

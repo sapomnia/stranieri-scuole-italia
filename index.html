@@ -47,6 +47,8 @@ select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outli
 .big{font-family:var(--serif); font-weight:700; font-size:54px; line-height:1; font-variant-numeric:tabular-nums}
 .verdict.hot .big{color:var(--soglia)}
 .big small{font-size:24px}
+.bigbox{display:flex; flex-direction:column; gap:4px}
+.biglab{font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); line-height:1.3}
 .verdict p{margin:0}
 .verdict .sub{color:var(--muted); font-size:14px}
 .bars{display:flex; flex-direction:column; gap:10px}
@@ -112,7 +114,7 @@ select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outli
   <section class="panel ctx" id="ctx"></section>
 
   <footer class="note">
-    <p><b>Come leggere i dati.</b> Il ministero non pubblica i dati per singola sezione, ma per anno di corso: “classi” indica quindi l'insieme degli alunni di uno stesso anno (tutte le prime, tutte le seconde…) di quel plesso. Un anno di corso supera il tetto se gli alunni stranieri sono più del 30% degli iscritti. Nei plessi molto piccoli bastano pochi alunni per superare la soglia.</p>
+    <p><b>Come leggere i dati.</b> Il ministero non pubblica i dati per singola sezione, ma per anno di corso: “classi” indica quindi l'insieme degli alunni di uno stesso anno (tutte le prime, tutte le seconde…) di quel plesso. Un anno di corso supera il tetto se gli alunni stranieri sono più del 30% degli iscritti. È un'approssimazione: una singola sezione può superare il 30% anche se la media dell'anno è sotto soglia, e viceversa. Il numero grande indica la quota di anni di corso oltre soglia, non la quota di alunni stranieri, riportata a fianco. Nei plessi molto piccoli bastano pochi alunni per superare la soglia.</p>
     <p>Fonte: elaborazione su dati del Ministero dell'Istruzione e del Merito, Portale unico dei dati della scuola (studenti per cittadinanza e anagrafica scuole, a.s. 2024/25). Solo scuole statali; esclusi Valle d'Aosta e Trentino-Alto Adige, non coperti dal dataset.</p>
   </footer>
 </div>
@@ -149,7 +151,7 @@ function statArea(filtro, ordine){
 
 // select helpers
 function fill(sel, items, value){
-  sel.innerHTML = items.map(([v, t]) => `<option value="${v}">${t.replace(/</g, "&lt;")}</option>`).join("");
+  sel.innerHTML = items.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
   if (value !== undefined) sel.value = value;
 }
 const regIdx = D.r.map((r, i) => [i, r]).sort((a, b) => coll.compare(a[1], b[1]));
@@ -194,7 +196,7 @@ function render(){
     <div class="school"><h2>${esc(s[1])}</h2>
       <p class="meta">${ORD[s[2]]} · ${esc(s[3])}, ${esc(com)} (${esc(prov)}) · codice ${s[4]}</p></div>
     <div class="verdict ${hot ? "hot" : ""}">
-      <div class="big">${Math.round(pctClassi)}<small>%</small></div>
+      <div class="bigbox"><div class="big">${Math.round(pctClassi)}<small>%</small></div><div class="biglab">delle classi<br>oltre il 30%</div></div>
       <div><p><b>${a.over.length} ${a.over.length === 1 ? "anno di corso" : "anni di corso"} su ${a.validi.length}</b> ${a.over.length === 1 ? "supera" : "superano"} il 30% di alunni ${chi}.</p>
       <p class="sub">Nel complesso del plesso: ${str} ${chi} su ${tot} iscritti (${tot ? fmt1(Math.round(str / tot * 1000) / 10) : 0}%).</p></div>
     </div>
