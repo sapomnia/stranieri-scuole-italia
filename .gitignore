@@ -1,0 +1,12 @@
+# formati alternativi del dataset MIM (oltre il limite di 100 MB di GitHub o ridondanti)
+*.json
+*.rdf
+*.xml
+# geocodifica abbandonata
+geocode.py
+geocode.log
+geocode_cache.json
+osm_ref_miur.json
+EDIANAGRAFESTA*.csv
+.DS_Store
+__pycache__/
