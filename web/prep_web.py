@@ -6,6 +6,7 @@ JSON compatto incorporato nel modello al posto del segnaposto __DATA__.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import sys
@@ -16,8 +17,12 @@ sys.path.insert(0, str(WEB_DIR.parent))
 
 from common import BASE_DIR, SOGLIA_PERCENTUALE, Plesso, carica_plessi  # noqa: E402
 
-TEMPLATE = WEB_DIR / "template.html"
-OUTPUT = BASE_DIR / "index.html"
+# (modello, pagina generata): la seconda versione usa i colori e i font di mappine
+PAGINE = [
+    (WEB_DIR / "template.html", BASE_DIR / "index.html"),
+    (WEB_DIR / "template_mappine.html", BASE_DIR / "mappine" / "index.html"),
+]
+LOGO = WEB_DIR / "logo-mappine.webp"  # incorporato nella pagina come data URI
 PROVINCIA_INIZIALE = "Prato"  # la provincia con la quota più alta: la pagina si apre lì
 
 # Il modello contiene solo il corpo della pagina; per GitHub Pages serve l'intestazione completa.
@@ -113,17 +118,22 @@ def main() -> None:
     plessi = carica_plessi()
     dati = dati_compatti(plessi)
     iniziale = plesso_iniziale(plessi)
-    modello = TEMPLATE.read_text(encoding="utf-8")
-    for segnaposto in ("__DATA__", "__START__", "__SOGLIA__"):
-        if segnaposto not in modello:
-            raise ValueError(f"Segnaposto {segnaposto} mancante in {TEMPLATE.name}")
-    pagina = (
-        modello.replace("__DATA__", json.dumps(dati, ensure_ascii=False, separators=(",", ":")))
-        .replace("__START__", iniziale)
-        .replace("__SOGLIA__", f"{SOGLIA_PERCENTUALE:g}")
-    )
-    OUTPUT.write_text(INTESTAZIONE_HTML + pagina, encoding="utf-8")
-    print(f"{OUTPUT.name}: {len(dati['s'])} plessi, {len(dati['c'])} comuni, pagina iniziale {iniziale}")
+    dati_json = json.dumps(dati, ensure_ascii=False, separators=(",", ":"))
+    logo = "data:image/webp;base64," + base64.b64encode(LOGO.read_bytes()).decode()
+    for modello_file, output in PAGINE:
+        modello = modello_file.read_text(encoding="utf-8")
+        for segnaposto in ("__DATA__", "__START__", "__SOGLIA__"):
+            if segnaposto not in modello:
+                raise ValueError(f"Segnaposto {segnaposto} mancante in {modello_file.name}")
+        pagina = (
+            modello.replace("__DATA__", dati_json)
+            .replace("__START__", iniziale)
+            .replace("__SOGLIA__", f"{SOGLIA_PERCENTUALE:g}")
+            .replace("__LOGO__", logo)
+        )
+        output.parent.mkdir(exist_ok=True)
+        output.write_text(INTESTAZIONE_HTML + pagina, encoding="utf-8")
+        print(f"{output.relative_to(BASE_DIR)}: {len(dati['s'])} plessi, {len(dati['c'])} comuni, pagina iniziale {iniziale}")
 
 
 if __name__ == "__main__":

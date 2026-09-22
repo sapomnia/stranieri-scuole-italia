@@ -3,6 +3,7 @@
 Quante classi delle scuole primarie e secondarie di primo grado statali superano il 30% di alunni con cittadinanza non italiana, la soglia indicata dalla circolare ministeriale n. 2 dell'8 gennaio 2010.
 
 **Pagina interattiva:** https://sapomnia.github.io/stranieri-scuole-italia/
+**Versione mappine** (stessi dati, identità visiva della newsletter): https://sapomnia.github.io/stranieri-scuole-italia/mappine/
 Si sceglie regione, provincia, comune e scuola e si vede quanti anni di corso superano il 30%, con il confronto con provincia, regione e Italia.
 
 ## Contenuto
@@ -10,11 +11,13 @@ Si sceglie regione, provincia, comune e scuola e si vede quanti anni di corso su
 | File | Cosa contiene |
 |---|---|
 | `index.html` | La pagina interattiva (dati incorporati, nessuna dipendenza oltre ai Google Fonts) |
+| `mappine/index.html` | La stessa pagina con l'identità visiva di mappine (Georgia, palette blu, logo) |
 | `Scuole_stranieri_oltre30_nonUE_2024-25.xlsx` | Stranieri = solo cittadini extra-UE |
 | `Scuole_stranieri_oltre30_UE_e_nonUE_2024-25.xlsx` | Stranieri = tutti i cittadini non italiani (UE ed extra-UE) |
 | `common.py` | Lettura dei CSV MIM e abbinamento ai codici Istat, condivisi dagli altri script |
 | `build.py` | Genera i due file Excel |
-| `web/prep_web.py`, `web/template.html` | Generano `index.html` |
+| `web/prep_web.py`, `web/template.html`, `web/template_mappine.html` | Generano le due pagine |
+| `web/logo-mappine.webp` | Logo incorporato nella versione mappine |
 | `ALUITASTRACITSTA20242520250831.csv` | MIM, alunni per cittadinanza, scuola e anno di corso |
 | `SCUANAGRAFESTAT20242520250831.csv` | MIM, anagrafica delle scuole statali |
 | `istat/` | Elenchi Istat di regioni, province e comuni con i codici |
@@ -40,7 +43,7 @@ Nel foglio Province la riga **Italia** in fondo riporta il dato nazionale; è es
 ```bash
 pip install openpyxl
 python3 build.py          # file Excel
-python3 web/prep_web.py   # index.html
+python3 web/prep_web.py   # index.html e mappine/index.html
 ```
 
 ## Fonti

@@ -1,0 +1,222 @@
+<title>Il tetto del 30%</title>
+<style>
+/* Identità visiva mappine: sfondo chiaro, Georgia, blu dominante e terracotta d'accento */
+:root{
+  --ground:#F2F0E6; --surface:#FBFDF5; --ink:#594A42; --muted:#8C7B72; --rule:#DDD8C8; --field:#F2F0E6;
+  --blu:#7B8FA1; --blu-scuro:#5C7386; --blu-chiaro:#B9C7D3; --salvia:#7A8686; --terracotta:#BA5D3C;
+  --nonue:#5C7386; --ue:#B9C7D3; --soglia:#BA5D3C; --soglia-tint:#E9EDF1; --ok-tint:#F2F0E6; --focus:#5C7386;
+  --serif:Georgia, "Times New Roman", serif;
+  --sans:Georgia, "Times New Roman", serif;
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.5; padding-inline:16px; padding-block:28px 40px}
+.wrap{max-width:780px; margin:0 auto; border-left:5px solid var(--blu); padding-left:20px; display:flex; flex-direction:column; gap:22px}
+.brandbar{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.logo{height:54px; width:auto; max-width:45%; object-fit:contain; flex:none}
+.kicker{font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--blu-scuro); margin:0}
+h1{font-family:var(--serif); font-weight:700; font-size:clamp(26px,5vw,36px); line-height:1.12; margin:6px 0 10px; text-wrap:balance}
+.lede{color:var(--muted); margin:0; max-width:62ch}
+.panel{background:var(--surface); border:1px solid var(--rule); border-radius:10px; padding:18px; display:flex; flex-direction:column; gap:16px}
+.selects{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px}
+.selects .full{grid-column:1/-1}
+label{display:flex; flex-direction:column; gap:5px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--muted)}
+select{font:inherit; font-size:15px; text-transform:none; letter-spacing:0; font-weight:500; color:var(--ink); background:var(--field); border:1px solid var(--rule); border-radius:7px; padding:9px 10px; width:100%; min-width:0}
+select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+.mode{display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:13px; color:var(--muted)}
+.seg{display:inline-flex; border:1px solid var(--rule); border-radius:8px; overflow:hidden; background:var(--field)}
+.seg button{font:inherit; font-size:13px; font-weight:600; border:0; background:transparent; color:var(--muted); padding:7px 12px; cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--blu-scuro); color:#FBFDF5}
+.school h2{font-family:var(--serif); font-size:24px; line-height:1.2; margin:0; text-wrap:balance}
+.meta{color:var(--muted); font-size:14px; margin:4px 0 0}
+.verdict{display:grid; grid-template-columns:auto 1fr; gap:6px 18px; align-items:center; padding:14px 16px; border-radius:8px; background:var(--ok-tint)}
+.verdict.hot{background:var(--soglia-tint)}
+.big{font-family:var(--serif); font-weight:700; font-size:54px; line-height:1; font-variant-numeric:tabular-nums}
+.verdict.hot .big{color:var(--terracotta)}
+.big small{font-size:24px}
+.bigbox{display:flex; flex-direction:column; gap:4px}
+.biglab{font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); line-height:1.3}
+.verdict p{margin:0}
+.verdict .sub{color:var(--muted); font-size:14px}
+.bars{display:flex; flex-direction:column; gap:10px}
+.bar-row{display:grid; grid-template-columns:78px 1fr 64px; gap:10px; align-items:center; font-variant-numeric:tabular-nums}
+.bar-row .lab{font-size:13px; font-weight:600}
+.bar-row .lab span{display:block; font-weight:400; color:var(--muted); font-size:12px}
+.track{position:relative; height:22px; background:var(--field); border:1px solid var(--rule); border-radius:4px; overflow:hidden}
+.seg-nonue,.seg-ue{position:absolute; top:0; bottom:0}
+.seg-nonue{left:0; background:var(--nonue)}
+.seg-ue{background:var(--ue)}
+.track .line{position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--terracotta); left:30%}
+.val{text-align:right; font-weight:700; font-size:15px}
+.val.hot{color:var(--soglia)}
+.val.na{color:var(--muted); font-weight:400; font-size:12px}
+.axis{display:grid; grid-template-columns:78px 1fr 64px; gap:10px; font-size:11px; color:var(--muted)}
+.axis div{position:relative; height:14px}
+.axis span{position:absolute; transform:translateX(-50%)}
+.legend{display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted)}
+.legend i{display:inline-block; width:12px; height:12px; border-radius:2px; vertical-align:-2px; margin-right:5px}
+.ctx h3{font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 10px}
+.ctx-row{display:grid; grid-template-columns:minmax(0,170px) 1fr 54px; gap:10px; align-items:center; font-size:14px; font-variant-numeric:tabular-nums; padding-block:5px; border-top:1px solid var(--rule)}
+.ctx-row:first-of-type{border-top:0}
+.ctx-row .name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mini{height:8px; background:var(--field); border-radius:4px; overflow:hidden}
+.mini div{height:100%; background:var(--blu)}
+.ctx-row b{text-align:right}
+.note{font-size:12.5px; color:var(--muted); max-width:70ch}
+.note p{margin:0 0 6px}
+.firma{font-size:15px; color:var(--ink); margin-bottom:12px}
+.firma a{color:var(--blu-scuro); font-weight:700; text-underline-offset:3px}
+.firma a:hover{color:var(--terracotta)}
+@media (max-width:620px){
+  .selects{grid-template-columns:1fr 1fr}
+  .big{font-size:44px}
+  .bar-row,.axis{grid-template-columns:62px 1fr 54px}
+  .ctx-row{grid-template-columns:minmax(0,120px) 1fr 50px}
+}
+@media (max-width:520px){ .wrap{padding-left:14px} .logo{height:40px} }
+@media (max-width:420px){ .selects{grid-template-columns:1fr} .verdict{grid-template-columns:1fr} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brandbar"><p class="kicker">Scuole · anno scolastico 2024/25</p><img class="logo" src="__LOGO__" alt="mappine"></div>
+    <h1>Quante classi superano il tetto del 30% di alunni stranieri?</h1>
+    <p class="lede">Scegli una scuola primaria o secondaria di primo grado statale e scopri in quanti anni di corso gli alunni con cittadinanza non italiana sono più del 30%, la soglia indicata dalla circolare ministeriale del 2010.</p>
+  </header>
+
+  <section class="panel" aria-label="Scegli la scuola">
+    <div class="selects">
+      <label for="sel-reg">Regione<select id="sel-reg"></select></label>
+      <label for="sel-prov">Provincia<select id="sel-prov"></select></label>
+      <label for="sel-com">Comune<select id="sel-com"></select></label>
+      <label for="sel-sc" class="full">Scuola<select id="sel-sc"></select></label>
+    </div>
+    <div class="mode">
+      <span>Conta come stranieri:</span>
+      <div class="seg" role="group" aria-label="Chi contare come straniero">
+        <button type="button" id="m-tutti" aria-pressed="true">Tutti</button>
+        <button type="button" id="m-nonue" aria-pressed="false">Solo extra-UE</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="result" aria-live="polite"></section>
+
+  <section class="panel ctx" id="ctx"></section>
+
+  <footer class="note">
+    <p><b>Come leggere i dati.</b> Il ministero non pubblica i dati per singola sezione, ma per anno di corso: “classi” indica quindi l'insieme degli alunni di uno stesso anno (tutte le prime, tutte le seconde…) di quel plesso. Un anno di corso supera il tetto se gli alunni stranieri sono più del 30% degli iscritti. È un'approssimazione: una singola sezione può superare il 30% anche se la media dell'anno è sotto soglia, e viceversa. Il numero grande indica la quota di anni di corso oltre soglia, non la quota di alunni stranieri, riportata a fianco. Nei plessi molto piccoli bastano pochi alunni per superare la soglia.</p>
+    <p class="firma">Se hai trovato interessante questo tool, <a href="https://www.mappine.it" target="_blank" rel="noopener">puoi valutare di iscriverti a mappine</a>.</p>
+    <p>Fonte: elaborazione su dati del Ministero dell'Istruzione e del Merito, Portale unico dei dati della scuola (studenti per cittadinanza e anagrafica scuole, a.s. 2024/25). Solo scuole statali; esclusi Valle d'Aosta e Trentino-Alto Adige, non coperti dal dataset.</p>
+  </footer>
+</div>
+
+<script>
+const D = __DATA__;
+const SOGLIA = __SOGLIA__;
+const ORD = ["Primaria", "Secondaria di primo grado"];
+const $ = id => document.getElementById(id);
+const coll = new Intl.Collator("it");
+const fmt1 = n => n.toLocaleString("it-IT", {maximumFractionDigits: 1, minimumFractionDigits: n % 1 ? 1 : 0});
+let mode = "tutti";
+
+// indici
+const provOfCom = c => D.c[c][1], regOfProv = p => D.p[p][1];
+const byCom = new Map();
+D.s.forEach((s, i) => { if (!byCom.has(s[0])) byCom.set(s[0], []); byCom.get(s[0]).push(i); });
+
+function stranieri(y){ return mode === "tutti" ? y[1] + y[2] : y[2]; }
+function analisi(s){
+  const anni = s[5].map((y, i) => ({anno: i + 1, alunni: y[0], ue: y[1], nonue: y[2],
+    pct: y[0] ? stranieri(y) / y[0] * 100 : null}));
+  const validi = anni.filter(a => a.pct !== null);
+  const over = validi.filter(a => a.pct > SOGLIA);
+  return {anni, validi, over};
+}
+
+// statistiche di contesto per ordine di scuola
+function statArea(filtro, ordine){
+  let n = 0, k = 0;
+  for (const s of D.s){ if (s[2] !== ordine || !filtro(s)) continue; const a = analisi(s); if (!a.validi.length) continue; n++; if (a.over.length) k++; }
+  return {n, k, pct: n ? k / n * 100 : 0};
+}
+
+// select helpers
+function fill(sel, items, value){
+  sel.innerHTML = items.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+  if (value !== undefined) sel.value = value;
+}
+const regIdx = D.r.map((r, i) => [i, r]).sort((a, b) => coll.compare(a[1], b[1]));
+function provinceDi(r){ return D.p.map((p, i) => [i, p[0], p[1]]).filter(p => p[2] === r).sort((a, b) => coll.compare(a[1], b[1])); }
+function comuniDi(p){ return D.c.map((c, i) => [i, c[0], c[1]]).filter(c => c[2] === p).sort((a, b) => coll.compare(a[1], b[1])); }
+function scuoleDi(c){ return (byCom.get(c) || []).slice().sort((a, b) => D.s[a][2] - D.s[b][2] || coll.compare(D.s[a][1], D.s[b][1])); }
+
+function setReg(r, p, c, s){
+  fill($("sel-reg"), regIdx, r);
+  const pv = provinceDi(r); fill($("sel-prov"), pv.map(x => [x[0], x[1]]), p ?? pv[0][0]);
+  setProv(+$("sel-prov").value, c, s);
+}
+function setProv(p, c, s){
+  const cm = comuniDi(p); fill($("sel-com"), cm.map(x => [x[0], x[1]]), c ?? cm[0][0]);
+  setCom(+$("sel-com").value, s);
+}
+function setCom(c, s){
+  const sc = scuoleDi(c);
+  fill($("sel-sc"), sc.map(i => [i, `${D.s[i][1]} · ${D.s[i][2] ? "Secondaria I grado" : "Primaria"}`]), s ?? sc[0]);
+  render();
+}
+
+function render(){
+  const i = +$("sel-sc").value, s = D.s[i], a = analisi(s);
+  const com = D.c[s[0]][0], p = provOfCom(s[0]), prov = D.p[p][0], r = regOfProv(p), reg = D.r[r];
+  const tot = a.validi.reduce((t, y) => t + y.alunni, 0);
+  const str = a.validi.reduce((t, y) => t + (mode === "tutti" ? y.ue + y.nonue : y.nonue), 0);
+  const pctClassi = a.validi.length ? a.over.length / a.validi.length * 100 : 0;
+  const hot = a.over.length > 0;
+  const chi = mode === "tutti" ? "stranieri" : "stranieri extra-UE";
+
+  const bars = a.anni.map(y => {
+    if (y.pct === null) return `<div class="bar-row"><div class="lab">${y.anno}° anno<span>nessun alunno</span></div><div class="track"><div class="line"></div></div><div class="val na">n.d.</div></div>`;
+    const wN = y.nonue / y.alunni * 100, wU = mode === "tutti" ? y.ue / y.alunni * 100 : 0;
+    const title = `${y.anno}° anno: ${y.alunni} alunni, ${y.nonue} extra-UE, ${y.ue} UE`;
+    return `<div class="bar-row" title="${title}"><div class="lab">${y.anno}° anno<span>${y.alunni} alunni</span></div>
+      <div class="track" role="img" aria-label="${title}"><div class="seg-nonue" style="width:${wN}%"></div><div class="seg-ue" style="left:${wN}%;width:${wU}%"></div><div class="line"></div></div>
+      <div class="val ${y.pct > SOGLIA ? "hot" : ""}">${fmt1(Math.round(y.pct * 10) / 10)}%</div></div>`;
+  }).join("");
+
+  $("result").innerHTML = `
+    <div class="school"><h2>${esc(s[1])}</h2>
+      <p class="meta">${ORD[s[2]]} · ${esc(s[3])}, ${esc(com)} (${esc(prov)}) · codice ${s[4]}</p></div>
+    <div class="verdict ${hot ? "hot" : ""}">
+      <div class="bigbox"><div class="big">${Math.round(pctClassi)}<small>%</small></div><div class="biglab">delle classi<br>oltre il 30%</div></div>
+      <div><p><b>${a.over.length} ${a.over.length === 1 ? "anno di corso" : "anni di corso"} su ${a.validi.length}</b> ${a.over.length === 1 ? "supera" : "superano"} il 30% di alunni ${chi}.</p>
+      <p class="sub">Nel complesso del plesso: ${str} ${chi} su ${tot} iscritti (${tot ? fmt1(Math.round(str / tot * 1000) / 10) : 0}%).</p></div>
+    </div>
+    <div class="bars">${bars}
+      <div class="axis" aria-hidden="true"><div></div><div>${[0, 30, 50, 100].map(t => `<span style="left:${t}%">${t}%</span>`).join("")}</div><div></div></div>
+    </div>
+    <div class="legend"><span><i style="background:var(--nonue)"></i>Extra-UE</span>${mode === "tutti" ? `<span><i style="background:var(--ue)"></i>UE</span>` : ""}<span><i style="background:var(--soglia);width:3px"></i>Soglia del 30%</span></div>`;
+
+  const ord = s[2], lab = ord ? "secondarie di primo grado" : "primarie";
+  const rows = [
+    [`Provincia di ${prov}`, statArea(x => provOfCom(x[0]) === p, ord)],
+    [reg, statArea(x => regOfProv(provOfCom(x[0])) === r, ord)],
+    ["Italia", statArea(() => true, ord)],
+  ];
+  $("ctx").innerHTML = `<h3>Scuole ${lab} con almeno un anno di corso oltre il 30%</h3>` + rows.map(([n, st]) =>
+    `<div class="ctx-row" title="${st.k} su ${st.n} plessi"><span class="name">${esc(n)}</span><div class="mini"><div style="width:${st.pct}%"></div></div><b>${fmt1(Math.round(st.pct * 10) / 10)}%</b></div>`).join("");
+}
+function esc(t){ return String(t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})[c]); }
+
+$("sel-reg").addEventListener("change", e => setReg(+e.target.value));
+$("sel-prov").addEventListener("change", e => setProv(+e.target.value));
+$("sel-com").addEventListener("change", e => setCom(+e.target.value));
+$("sel-sc").addEventListener("change", render);
+for (const [id, m] of [["m-tutti", "tutti"], ["m-nonue", "nonue"]]) $(id).addEventListener("click", () => {
+  mode = m; $("m-tutti").setAttribute("aria-pressed", m === "tutti"); $("m-nonue").setAttribute("aria-pressed", m === "nonue"); render();
+});
+
+// stato iniziale: una scuola reale di Prato, la provincia con la quota più alta
+const start = D.s.findIndex(s => s[4] === "__START__");
+const s0 = D.s[start], p0 = provOfCom(s0[0]);
+setReg(regOfProv(p0), p0, s0[0], start);
+</script>
